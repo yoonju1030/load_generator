@@ -1,8 +1,39 @@
 # app/services/run_manager.py
-import asyncio, time, uuid
+import asyncio
+import time
+import uuid
 from typing import Dict
-from app.domain.models.run_state import RunState, Stats
-from app.services.engine import run_load
+
+from src.db.database import async_session_factory
+from src.db.models import Exec
+from src.domain.models.run_state import RunState, Stats
+from src.services.engine import run_load
+
+
+async def _exec_insert(
+    run_id: str,
+    scenario,
+    status_code: int | None,
+    latency_ms: float | None,
+    success: bool,
+    error: str | None,
+) -> None:
+    async with async_session_factory() as session:
+        row = Exec(
+            run_id=run_id,
+            method=scenario.method,
+            path=scenario.path,
+            timeout_s=scenario.timeout_s,
+            request_headers=getattr(scenario, "headers", None) or None,
+            request_json=getattr(scenario, "json", None),
+            status_code=status_code,
+            latency_ms=latency_ms,
+            success=success,
+            error=error,
+        )
+        session.add(row)
+        await session.commit()
+
 
 class RunManager:
     def __init__(self):
@@ -23,6 +54,8 @@ class RunManager:
                     scenario=req.scenario,
                     stop=stop,
                     stats=stats,
+                    run_id=run_id,
+                    exec_insert=_exec_insert,
                 )
                 self.runs[run_id].status = "stopped"
             except Exception as e:

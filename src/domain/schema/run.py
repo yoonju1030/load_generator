@@ -1,10 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal, Optional, Any
 
 class SingleScenario(BaseModel):
     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
     path: str
-    headers: dict[str, str]
+    headers: dict[str, str] = None
     json: Optional[dict[str, Any]] = None
     timeout_s: float = 10.0
 

@@ -2,9 +2,22 @@
 import asyncio
 import time
 import httpx
+from typing import Awaitable, Callable
 
-async def fire_one(client: httpx.AsyncClient, scenario, sem: asyncio.Semaphore, stop: asyncio.Event, stats):
+async def fire_one(
+    client: httpx.AsyncClient,
+    scenario,
+    sem: asyncio.Semaphore,
+    stop: asyncio.Event,
+    stats,
+    run_id: str | None = None,
+    exec_insert: Callable[..., Awaitable[None]] | None = None,
+):
     start = time.perf_counter()
+    status_code = None
+    latency_ms = None
+    success = False
+    error = None
     try:
         stats.sent += 1
         resp = await client.request(
@@ -16,17 +29,40 @@ async def fire_one(client: httpx.AsyncClient, scenario, sem: asyncio.Semaphore, 
         )
         elapsed = (time.perf_counter() - start) * 1000
         stats.latency_ms.append(elapsed)
-
-        if 200 <= resp.status_code < 400:
+        status_code = resp.status_code
+        latency_ms = elapsed
+        success = 200 <= resp.status_code < 400
+        if success:
             stats.success += 1
         else:
             stats.fail += 1
-    except Exception:
+    except Exception as e:
         stats.fail += 1
+        error = str(e)
+        latency_ms = (time.perf_counter() - start) * 1000
     finally:
+        if exec_insert and run_id:
+            await exec_insert(
+                run_id=run_id,
+                scenario=scenario,
+                status_code=status_code,
+                latency_ms=latency_ms,
+                success=success,
+                error=error,
+            )
         sem.release()
 
-async def run_load(duration_s: int, rps: float, concurrency: int, base_url: str, scenario, stop: asyncio.Event, stats):
+async def run_load(
+    duration_s: int,
+    rps: float,
+    concurrency: int,
+    base_url: str,
+    scenario,
+    stop: asyncio.Event,
+    stats,
+    run_id: str | None = None,
+    exec_insert: Callable[..., Awaitable[None]] | None = None,
+):
     sem = asyncio.Semaphore(concurrency)
 
     limits = httpx.Limits(
@@ -59,7 +95,9 @@ async def run_load(duration_s: int, rps: float, concurrency: int, base_url: str,
                 sem.release()
                 break
 
-            asyncio.create_task(fire_one(client, scenario, sem, stop, stats))
+            asyncio.create_task(
+                fire_one(client, scenario, sem, stop, stats, run_id=run_id, exec_insert=exec_insert)
+            )
 
 '''
 - 스케줄러는 “매 1/rps 초마다 발사”를 목표로 tick을 유지
