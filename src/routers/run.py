@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.domain.schemas.run import RunCreateRequest
+from src.domain.schema.run import RunCreateRequest
 from src.services.run_manager import RunManager
 
 run_router = APIRouter(prefix="/run")

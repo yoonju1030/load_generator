@@ -40,7 +40,7 @@ class RunManager:
         self.runs: Dict[str, RunState] = {}
 
     def start(self, req) -> str:
-        run_id = str(uuid.uuid4())
+        run_id = req.run_id
         stop = asyncio.Event()
         stats = Stats()
 

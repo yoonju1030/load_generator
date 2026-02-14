@@ -53,7 +53,7 @@ async def fire_one(
         sem.release()
 
 async def run_load(
-    duration_s: int,
+    duration_s: float,
     rps: float,
     concurrency: int,
     base_url: str,
