@@ -4,6 +4,7 @@ import time
 import uuid
 from typing import Dict
 
+import httpx
 from src.db.database import async_session_factory
 from src.db.models import Exec
 from src.domain.models.run_state import RunState, Stats
@@ -35,6 +36,34 @@ async def _exec_insert(
         await session.commit()
 
 
+async def _notify_back(
+    callback_url: str,
+    run_id: str,
+    status: str,
+    stats: Stats,
+    error: str | None = None,
+) -> None:
+    """Run 종료 시 callback_url로 POST 요청을 보냄."""
+    body = {
+        "run_id": run_id,
+        "status": status,
+        "sent": stats.sent,
+        "success": stats.success,
+        "fail": stats.fail,
+    }
+    if error is not None:
+        body["error"] = error
+    if stats.latency_ms:
+        sorted_ms = sorted(stats.latency_ms)
+        idx = max(0, int(len(sorted_ms) * 0.95) - 1)
+        body["p95_latency_ms"] = round(sorted_ms[idx], 2)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(callback_url, json=body)
+    except Exception:
+        pass  # 콜백 실패는 로그만 하고 무시
+
+
 class RunManager:
     def __init__(self):
         self.runs: Dict[str, RunState] = {}
@@ -58,10 +87,18 @@ class RunManager:
                     exec_insert=_exec_insert,
                 )
                 self.runs[run_id].status = "stopped"
+                if getattr(req, "callback_url", None):
+                    await _notify_back(
+                        req.callback_url, run_id, "stopped", stats, error=None
+                    )
             except Exception as e:
                 self.runs[run_id].status = "failed"
                 self.runs[run_id].error = str(e)
                 stop.set()
+                if getattr(req, "callback_url", None):
+                    await _notify_back(
+                        req.callback_url, run_id, "failed", stats, error=str(e)
+                    )
 
         task = asyncio.create_task(runner())
         self.runs[run_id] = RunState(

@@ -37,3 +37,4 @@ class RunCreateRequest(BaseModel):
     concurrency: int = Field(default=50, ge=1, le=5000)
     run_id: str = Field(default=str(uuid.uuid4()))
     scenario: SingleScenario
+    callback_url: Optional[str] = None  # run 종료 시 결과를 POST로 보낼 URL
