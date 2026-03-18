@@ -4,6 +4,7 @@ import time
 import httpx
 from typing import Awaitable, Callable
 
+
 async def fire_one(
     client: httpx.AsyncClient,
     scenario,
@@ -52,6 +53,7 @@ async def fire_one(
             )
         sem.release()
 
+
 async def run_load(
     duration_s: float,
     rps: float,
@@ -71,10 +73,13 @@ async def run_load(
         keepalive_expiry=10.0,
     )
     timeout = httpx.Timeout(10.0)
-    async with httpx.AsyncClient(base_url=base_url, limits=limits, timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url, limits=limits, timeout=timeout
+    ) as client:
         interval = 1.0 / rps
         end_at = time.perf_counter() + duration_s
         next_tick = time.perf_counter()
+        tasks: list[asyncio.Task] = []
 
         while not stop.is_set():
             now = time.perf_counter()
@@ -95,15 +100,30 @@ async def run_load(
                 sem.release()
                 break
 
-            asyncio.create_task(
-                fire_one(client, scenario, sem, stop, stats, run_id=run_id, exec_insert=exec_insert)
+            tasks.append(
+                asyncio.create_task(
+                    fire_one(
+                        client,
+                        scenario,
+                        sem,
+                        stop,
+                        stats,
+                        run_id=run_id,
+                        exec_insert=exec_insert,
+                    )
+                )
             )
 
-'''
+        # Ensure all in-flight requests finish before closing the client.
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+"""
 - 스케줄러는 “매 1/rps 초마다 발사”를 목표로 tick을 유지
 - 발사할 때마다 Semaphore로 동시성 제한
 - 요청 하나는 별도 task로 실행하고 끝나면 Semaphore.release()
 - 60초가 지나면 stop_event.set()해서 종료
 
 이 방식이 “RPS 유지”와 “동시성 제한”을 가장 단순하게 같이 만족시킴.
-'''
+"""
